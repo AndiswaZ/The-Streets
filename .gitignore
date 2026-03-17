@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# VS cache/settings
+.vs/
+*.user
+
+# SQLite (local database files)
+*.db
+*.db-shm
+*.db-wal
