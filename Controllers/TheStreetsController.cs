@@ -30,42 +30,66 @@ namespace TheStreets_BE.Controllers
         // GET: api/thestreets/posts
         [HttpGet("posts")]
         [AllowAnonymous]
-        public async Task<ActionResult<IEnumerable<BlogPost>>> GetAll(CancellationToken ct)
+
+        public async Task<ActionResult<IEnumerable<PostResponse>>> GetAll(CancellationToken ct)
         {
+            // Project directly to DTO with counts
             var posts = await _db.Posts
                 .AsNoTracking()
-                .Include(p => p.Comments)
-                .Include(p => p.Likes)
                 .OrderByDescending(p => p.CreatedAt)
+                .Select(p => new PostResponse
+                {
+                    Id = p.Id,
+                    Message = p.Message,
+                    CreatedByUserId = p.CreatedByUserId,
+                    CreatedByDisplayName = p.CreatedByDisplayName,
+                    CreatedAt = p.CreatedAt,
+                    UpdatedAt = p.UpdatedAt,
+                    LikeCount = p.Likes.Count,
+                    CommentCount = p.Comments.Count
+                })
                 .ToListAsync(ct);
 
             return Ok(posts);
         }
 
+
         // GET: api/thestreets/{id}
         [HttpGet("{id:int}")]
         [AllowAnonymous]
-        public async Task<ActionResult<BlogPost>> GetById(int id, CancellationToken ct)
+
+        public async Task<ActionResult<PostResponse>> GetById(int id, CancellationToken ct)
         {
             var post = await _db.Posts
                 .AsNoTracking()
-                .Include(p => p.Comments)
-                .Include(p => p.Likes)
-                .FirstOrDefaultAsync(p => p.Id == id, ct);
+                .Where(p => p.Id == id)
+                .Select(p => new PostResponse
+                {
+                    Id = p.Id,
+                    Message = p.Message,
+                    CreatedByUserId = p.CreatedByUserId,
+                    CreatedByDisplayName = p.CreatedByDisplayName,
+                    CreatedAt = p.CreatedAt,
+                    UpdatedAt = p.UpdatedAt,
+                    LikeCount = p.Likes.Count,
+                    CommentCount = p.Comments.Count
+                })
+                .FirstOrDefaultAsync(ct);
 
             return post is null ? NotFound() : Ok(post);
         }
 
+
         // POST: api/thestreets
         [HttpPost]
         [Authorize]
-        public async Task<ActionResult<BlogPost>> Create([FromBody] PostCreateRequest request, CancellationToken ct)
+
+        public async Task<ActionResult<PostResponse>> Create([FromBody] PostCreateRequest request, CancellationToken ct)
         {
             if (!ModelState.IsValid) return ValidationProblem(ModelState);
             if (string.IsNullOrWhiteSpace(CurrentUserId)) return Unauthorized("Missing X-User-Id header.");
 
             var msg = request.Message.Trim();
-            // Auto-prefix if not already present (case-insensitive)
             if (!msg.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
                 msg = Prefix + msg;
 
@@ -80,23 +104,29 @@ namespace TheStreets_BE.Controllers
             _db.Posts.Add(post);
             await _db.SaveChangesAsync(ct);
 
-            return CreatedAtAction(nameof(GetById), new { id = post.Id }, post);
+            // materialize counts
+            post = await _db.Posts
+                .Include(p => p.Likes).Include(p => p.Comments)
+                .FirstAsync(p => p.Id == post.Id, ct);
+
+            return CreatedAtAction(nameof(GetById), new { id = post.Id }, post.ToResponse());
         }
 
         // PUT: api/thestreets/{id}
         [HttpPut("{id:int}")]
         [Authorize]
-        public async Task<ActionResult<BlogPost>> Update(int id, [FromBody] PostUpdateRequest request, CancellationToken ct)
+
+        public async Task<ActionResult<PostResponse>> Update(int id, [FromBody] PostUpdateRequest request, CancellationToken ct)
         {
             if (!ModelState.IsValid) return ValidationProblem(ModelState);
             if (string.IsNullOrWhiteSpace(CurrentUserId)) return Unauthorized("Missing X-User-Id header.");
 
-            var post = await _db.Posts.FindAsync(new object[] { id }, ct);
+            var post = await _db.Posts.Include(p => p.Likes).Include(p => p.Comments)
+                                      .FirstOrDefaultAsync(p => p.Id == id, ct);
             if (post is null) return NotFound();
 
-            // Only the creator can edit
-            if (!string.Equals(post.CreatedByUserId, CurrentUserId, StringComparison.Ordinal))
-                return Forbid();
+            var isOwner = string.Equals(post.CreatedByUserId, CurrentUserId, StringComparison.Ordinal);
+            if (!isOwner) return Forbid();
 
             var msg = request.Message.Trim();
             if (!msg.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
@@ -106,7 +136,7 @@ namespace TheStreets_BE.Controllers
             post.UpdatedAt = DateTimeOffset.UtcNow;
 
             await _db.SaveChangesAsync(ct);
-            return Ok(post);
+            return Ok(post.ToResponse());
         }
 
         // DELETE: api/thestreets/{id}

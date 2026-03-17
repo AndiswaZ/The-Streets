@@ -21,8 +21,24 @@ namespace TheStreets_BE.Data
                 e.Property(p => p.Message).IsRequired().HasMaxLength(2000);
                 e.Property(p => p.CreatedByUserId).IsRequired().HasMaxLength(128);
                 e.Property(p => p.CreatedByDisplayName).HasMaxLength(256);
-                e.HasMany(p => p.Likes).WithOne(l => l.Post).HasForeignKey(l => l.PostId).OnDelete(DeleteBehavior.Cascade);
-                e.HasMany(p => p.Comments).WithOne(c => c.Post).HasForeignKey(c => c.PostId).OnDelete(DeleteBehavior.Cascade);
+
+                // Timestamps: defaults and generated patterns
+                e.Property(p => p.CreatedAt)
+                    .HasDefaultValueSql("CURRENT_TIMESTAMP")    // SQLite UTC timestamp
+                    .ValueGeneratedOnAdd();
+
+                e.Property(p => p.UpdatedAt)
+                    .IsRequired(false);
+
+                e.HasMany(p => p.Likes)
+                    .WithOne(l => l.Post)
+                    .HasForeignKey(l => l.PostId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasMany(p => p.Comments)
+                    .WithOne(c => c.Post)
+                    .HasForeignKey(c => c.PostId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             b.Entity<PostLike>(e =>
